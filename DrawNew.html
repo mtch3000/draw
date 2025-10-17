@@ -1,0 +1,379 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="utf-8" />
+
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+
+<title>Simple Draw Canvas</title>
+
+<style>
+
+  :root{--ui-bg:#0f1724;--panel:#0b1220;--accent:#06b6d4;--muted:#94a3b8}
+
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#071022,#07101a);}
+
+  .app{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:18px;box-sizing:border-box}
+
+  .controls{display:flex;gap:10px;align-items:center;background:rgba(255,255,255,0.03);padding:10px;border-radius:10px;backdrop-filter:blur(6px);box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+
+  .controls label{font-family:system-ui,-apple-system,Segoe UI,Roboto; color:var(--muted);font-size:13px}
+
+  .btn{background:linear-gradient(90deg,#0ea5a4,#7c3aed);color:white;padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:600}
+
+  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+
+  .panel{width:90vw;max-width:1200px;height:calc(90vw / 6);max-height:200px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 18px 50px rgba(2,6,23,0.7)}
+
+  canvas{display:block;width:100%;height:100%;background:#ffffff;cursor:crosshair}
+
+  .legend{position:absolute;left:12px;bottom:12px;padding:8px 10px;background:rgba(0,0,0,0.35);color:#e6eef6;border-radius:8px;font-family:system-ui;font-size:13px}
+
+  .small{font-size:12px;color:var(--muted);margin-left:6px}
+  .draw-label{font-family:system-ui;color:var(--muted);font-size:14px;font-weight:500;margin-bottom:8px}
+
+  input[type=range]{accent-color:var(--accent)}
+
+  @media (max-width:700px){ .controls{flex-wrap:wrap;justify-content:center} .panel{max-width:900px;height:calc(900px / 6)} }
+
+</style>
+
+</head>
+
+<body>
+
+  <div class="app">
+
+    <div class="controls" role="toolbar" aria-label="Drawing controls">
+
+      <label>Color <input id="color" type="color" value="#06b6d4" style="margin-left:8px"></label>
+
+      <label style="margin-left:8px">Size <input id="size" type="range" min="1" max="80" value="6" style="vertical-align:middle;margin-left:8px"></label>
+
+      <button id="eraser" class="btn ghost">Eraser</button>
+
+      <button id="clear" class="btn ghost">Clear</button>
+
+      <button id="save" class="btn">Save PNG</button>
+
+      <div class="small" style="margin-left:10px">Tip: draw with mouse or touch</div>
+
+    </div>
+
+    
+    <div class="draw-label">DRAW HERE</div>
+
+    <div class="panel" id="panel">
+
+      <canvas id="canvas"></canvas>
+
+      <div class="legend">Free Draw • <span id="mode">Draw</span></div>
+
+    </div>
+
+  </div>
+
+
+
+<script>
+
+(function(){
+
+  const canvas = document.getElementById('canvas');
+
+  const panel = document.getElementById('panel');
+
+  const ctx = canvas.getContext('2d', { alpha: true });
+
+  const colorInput = document.getElementById('color');
+
+  const sizeInput = document.getElementById('size');
+
+  const clearBtn = document.getElementById('clear');
+
+  const saveBtn = document.getElementById('save');
+
+  const eraserBtn = document.getElementById('eraser');
+
+  const modeEl = document.getElementById('mode');
+
+
+
+  // Resize canvas to display size but keep high DPI
+
+  function resize() {
+
+    const ratio = Math.max(1, window.devicePixelRatio || 1);
+
+    const rect = panel.getBoundingClientRect();
+
+    canvas.width = Math.round(rect.width * ratio);
+
+    canvas.height = Math.round(rect.height * ratio);
+
+    canvas.style.width = rect.width + 'px';
+
+    canvas.style.height = rect.height + 'px';
+
+    ctx.scale(ratio, ratio);
+
+    ctx.lineCap = 'round';
+
+    ctx.lineJoin = 'round';
+
+    redrawBackdrop();
+
+  }
+
+
+
+  // faint grid/backdrop for nicer drawing surface
+
+  function redrawBackdrop(){
+
+    // draw subtle vignette
+
+    ctx.save();
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // Fill with white background
+
+    ctx.fillStyle = '#ffffff';
+
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.restore();
+
+  }
+
+
+
+  let drawing = false;
+
+  let last = {x:0,y:0};
+
+  let isEraser = false;
+
+
+
+  function setModeText(){ modeEl.textContent = isEraser ? 'Eraser' : 'Draw'; }
+
+
+
+  function getPointerPos(evt){
+
+    const rect = canvas.getBoundingClientRect();
+
+    let clientX, clientY;
+
+    if(evt.touches && evt.touches[0]){ clientX = evt.touches[0].clientX; clientY = evt.touches[0].clientY; }
+
+    else { clientX = evt.clientX; clientY = evt.clientY; }
+
+    return { x: clientX - rect.left, y: clientY - rect.top };
+
+  }
+
+
+
+  function pointerDown(e){
+
+    e.preventDefault();
+
+    drawing = true;
+
+    last = getPointerPos(e);
+
+    // begin a new path for smoother strokes
+
+    ctx.beginPath();
+
+    ctx.moveTo(last.x, last.y);
+
+  }
+
+
+
+  function pointerMove(e){
+
+    if(!drawing) return;
+
+    const pos = getPointerPos(e);
+
+    const brush = Number(sizeInput.value);
+
+    ctx.lineWidth = brush;
+
+    if(isEraser){
+
+      ctx.globalCompositeOperation = 'destination-out';
+
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+
+    } else {
+
+      ctx.globalCompositeOperation = 'source-over';
+
+      ctx.strokeStyle = colorInput.value;
+
+    }
+
+
+
+    // smoothing: quadratic curve between last and current
+
+    const midX = (last.x + pos.x) / 2;
+
+    const midY = (last.y + pos.y) / 2;
+
+    ctx.quadraticCurveTo(last.x, last.y, midX, midY);
+
+    ctx.stroke();
+
+    last = pos;
+
+  }
+
+
+
+  function pointerUp(e){
+
+    if(!drawing) return;
+
+    drawing = false;
+
+    ctx.closePath();
+
+  }
+
+
+
+  // events
+
+  canvas.addEventListener('mousedown', pointerDown);
+
+  canvas.addEventListener('mousemove', pointerMove);
+
+  window.addEventListener('mouseup', pointerUp);
+
+
+
+  canvas.addEventListener('touchstart', pointerDown, {passive:false});
+
+  canvas.addEventListener('touchmove', pointerMove, {passive:false});
+
+  window.addEventListener('touchend', pointerUp);
+
+
+
+  // controls
+
+  eraserBtn.addEventListener('click', ()=>{
+
+    isEraser = !isEraser;
+
+    eraserBtn.classList.toggle('ghost', !isEraser);
+
+    eraserBtn.textContent = isEraser ? 'Drawing' : 'Eraser';
+
+    setModeText();
+
+  });
+
+
+
+  clearBtn.addEventListener('click', ()=>{
+
+    const w = canvas.width, h = canvas.height;
+
+    ctx.clearRect(0,0,w,h);
+
+    redrawBackdrop();
+
+  });
+
+
+
+  saveBtn.addEventListener('click', ()=>{
+
+    // temporarily flatten onto an offscreen canvas at display size
+
+    const temp = document.createElement('canvas');
+
+    temp.width = canvas.clientWidth;
+
+    temp.height = canvas.clientHeight;
+
+    const tctx = temp.getContext('2d');
+
+    // copy: draw the visible canvas (it is scaled with CSS but contains content)
+
+    tctx.drawImage(canvas, 0, 0, temp.width, temp.height);
+
+    const data = temp.toDataURL('image/png');
+
+    const a = document.createElement('a');
+
+    a.href = data;
+
+    a.download = 'drawing.png';
+
+    a.click();
+
+  });
+
+
+
+  // keyboard shortcuts: E for eraser, C for clear, S for save
+
+  window.addEventListener('keydown', (e)=>{
+
+    if(e.key === 'e' || e.key === 'E'){ eraserBtn.click(); }
+
+    if(e.key === 'c' || e.key === 'C'){ clearBtn.click(); }
+
+    if(e.key === 's' || e.key === 'S'){ saveBtn.click(); }
+
+  });
+
+
+
+  // responsive
+
+  window.addEventListener('resize', ()=> {
+
+    // debounce
+
+    clearTimeout(window.__resizeTimer);
+
+    window.__resizeTimer = setTimeout(resize, 120);
+
+  });
+
+
+
+  // initial setup
+
+  resize();
+
+
+
+  // small UX: prevent scrolling while drawing on mobile
+
+  document.body.addEventListener('touchmove', function(e){
+
+    if(drawing) e.preventDefault();
+
+  }, {passive:false});
+
+})();
+
+</script>
+
+</body>
+
+</html>
