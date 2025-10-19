@@ -40,7 +40,7 @@ canvas { display:block; width:100%; height:100%; background:#fff; cursor:crossha
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, onChildAdded, push, set, remove, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getDatabase, ref, push, set, remove, onChildAdded, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -68,8 +68,9 @@ const eraserBtn = document.getElementById('eraser');
 const undoBtn = document.getElementById('undo');
 const userCountEl = document.getElementById('userCount');
 
-let drawing = false, last = {x:0,y:0}, isEraser = false;
-let strokes = []; // array of {key, data} for undo
+let drawing = false, isEraser = false;
+let currentStroke = []; // collect points during drawing
+let strokes = []; // store all strokes {key, data}
 
 // ===== Canvas setup =====
 function resizeCanvas(){
@@ -96,13 +97,15 @@ function getPos(e){
   return {x: t.clientX - rect.left, y: t.clientY - rect.top};
 }
 
-function drawLine(data){
-  ctx.lineWidth = data.size;
-  ctx.strokeStyle = data.erase ? "rgba(0,0,0,1)" : data.color;
-  ctx.globalCompositeOperation = data.erase ? "destination-out" : "source-over";
+function drawStroke(stroke){
+  ctx.lineWidth = stroke.size;
+  ctx.strokeStyle = stroke.erase ? "rgba(0,0,0,1)" : stroke.color;
+  ctx.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
   ctx.beginPath();
-  ctx.moveTo(data.from.x, data.from.y);
-  ctx.lineTo(data.to.x, data.to.y);
+  stroke.points.forEach((p,i)=>{
+    if(i===0) ctx.moveTo(p.x,p.y);
+    else ctx.lineTo(p.x,p.y);
+  });
   ctx.stroke();
 }
 
@@ -110,7 +113,7 @@ function redrawCanvas(){
   ctx.fillStyle = "#fff";
   ctx.fillRect(0,0,canvas.width,canvas.height);
   strokes.forEach(s=>{
-    drawLine(s.data);
+    drawStroke(s.data);
   });
 }
 
@@ -118,19 +121,25 @@ function redrawCanvas(){
 function pointerDown(e){
   e.preventDefault();
   drawing = true;
-  last = getPos(e);
+  const pos = getPos(e);
+  currentStroke = {points:[pos], color: colorInput.value, size:+sizeInput.value, erase:isEraser};
 }
 function pointerMove(e){
   if(!drawing) return;
   const pos = getPos(e);
-  const line = {from:last,to:pos,color:colorInput.value,size:+sizeInput.value,erase:isEraser};
-  drawLine(line);
-  const newRef = push(drawRef);
-  set(newRef,line);
-  strokes.push({key:newRef.key,data:line});
-  last = pos;
+  currentStroke.points.push(pos);
+  drawStroke({points: currentStroke.points, color: currentStroke.color, size: currentStroke.size, erase: currentStroke.erase});
 }
-function pointerUp(){ drawing=false; }
+function pointerUp(){
+  if(!drawing) return;
+  drawing=false;
+  if(currentStroke.points.length>1){
+    const newRef = push(drawRef);
+    set(newRef, currentStroke);
+    strokes.push({key:newRef.key,data:currentStroke});
+  }
+  currentStroke=[];
+}
 
 canvas.addEventListener("mousedown", pointerDown);
 canvas.addEventListener("mousemove", pointerMove);
@@ -138,7 +147,6 @@ window.addEventListener("mouseup", pointerUp);
 canvas.addEventListener("touchstart", pointerDown,{passive:false});
 canvas.addEventListener("touchmove", pointerMove,{passive:false});
 window.addEventListener("touchend", pointerUp);
-
 document.body.addEventListener('touchmove', e=>{ if(drawing) e.preventDefault();},{passive:false});
 
 // ===== Controls =====
@@ -162,7 +170,7 @@ onChildAdded(drawRef, snapshot=>{
   const data = snapshot.val();
   const key = snapshot.key;
   if(!strokes.find(s=>s.key===key)) strokes.push({key,data});
-  drawLine(data);
+  drawStroke(data);
 });
 
 onValue(drawRef, snapshot=>{
