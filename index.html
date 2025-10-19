@@ -31,6 +31,7 @@
   <button id="eraser" class="btn">Eraser</button>
   <button id="clear" class="btn">Clear</button>
   <button id="undo" class="btn">Undo</button>
+  <button id="fill" class="btn">Fill</button>
 </div>
 
 <div class="panel" id="panel">
@@ -67,10 +68,11 @@ const sizeInput = document.getElementById('size');
 const clearBtn = document.getElementById('clear');
 const eraserBtn = document.getElementById('eraser');
 const undoBtn = document.getElementById('undo');
+const fillBtn = document.getElementById('fill');
 const userCountEl = document.getElementById('userCount');
 
 let drawing = false, last = {x:0,y:0}, isEraser = false;
-let strokes = []; // local list of strokes with keys for undo
+let strokeKeys = []; // store stroke keys for undo
 
 // Responsive canvas
 function resize(){
@@ -125,7 +127,7 @@ function pointerMove(e){
   drawLine(line);
   const newRef = push(drawRef);
   set(newRef, line);
-  strokes.push(newRef.key); // store key for undo
+  strokeKeys.push(newRef.key); // store key for undo
   last = pos;
 }
 function pointerUp(){ drawing = false; }
@@ -149,30 +151,45 @@ eraserBtn.addEventListener("click", ()=>{
 // clear button
 clearBtn.addEventListener("click", ()=>{
   remove(drawRef);
-  strokes = [];
+  strokeKeys = [];
   ctx.fillStyle = "#fff";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 });
 
 // undo button
 undoBtn.addEventListener("click", ()=>{
-  if(strokes.length === 0) return;
-  const lastKey = strokes.pop();
+  if(strokeKeys.length === 0) return;
+  const lastKey = strokeKeys.pop();
   remove(ref(db, `drawings/${lastKey}`));
 });
 
-// redraw all strokes when any stroke added
-onChildAdded(drawRef, snapshot => {
-  const data = snapshot.val();
-  drawLine(data);
+// fill button
+fillBtn.addEventListener("click", ()=>{
+  const fillColor = colorInput.value;
+  ctx.fillStyle = fillColor;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Save as a single stroke in DB so everyone sees
+  const fillRef = push(drawRef);
+  set(fillRef, {from:{x:0,y:0}, to:{x:canvas.width, y:canvas.height}, color:fillColor, size:canvas.width, erase:false, fill:true});
 });
 
-// update canvas when DB cleared
+// redraw strokes from Firebase
+onChildAdded(drawRef, snapshot => {
+  const data = snapshot.val();
+  if(data.fill){
+    ctx.fillStyle = data.color;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  } else {
+    drawLine(data);
+  }
+});
+
+// clear canvas if DB cleared
 onValue(drawRef, snapshot => {
   if(!snapshot.exists()){
     ctx.fillStyle = "#fff";
     ctx.fillRect(0,0,canvas.width,canvas.height);
-    strokes = [];
+    strokeKeys = [];
   }
 });
 
@@ -181,8 +198,6 @@ const userId = 'user_' + Date.now() + '_' + Math.floor(Math.random()*1000);
 const userRef = ref(db, `activeUsers/${userId}`);
 set(userRef, true);
 onDisconnect(userRef).remove();
-
-// update active users count
 onValue(usersRef, snapshot => {
   const count = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
   userCountEl.textContent = count;
