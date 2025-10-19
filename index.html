@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
 <title>Shared Canvas</title>
 <style>
   html, body {
@@ -10,12 +10,14 @@
     background: linear-gradient(180deg,#071022,#07101a);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     font-family:system-ui; color:#fff;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
   }
-  .controls { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
+  .controls { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; justify-content:center; }
   .btn { background:linear-gradient(90deg,#0ea5a4,#7c3aed); color:white; padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:600; }
-  .panel { width:90vw; max-width:1200px; height:calc(90vw / 6); max-height:200px; border-radius:12px; overflow:hidden; position:relative; box-shadow:0 18px 50px rgba(2,6,23,0.7); }
-  canvas { display:block; width:100%; height:100%; background:#ffffff; cursor:crosshair; }
-  .link { margin-top:12px; color:#06b6d4; text-decoration:none; font-weight:bold; }
+  .panel { width:95vw; max-width:1200px; border-radius:12px; overflow:hidden; position:relative; box-shadow:0 18px 50px rgba(2,6,23,0.7); }
+  canvas { display:block; width:100%; background:#ffffff; cursor:crosshair; touch-action: none; }
+  .link { margin-top:12px; color:#06b6d4; text-decoration:none; font-weight:bold; word-break: break-word; text-align:center; }
 </style>
 </head>
 <body>
@@ -35,7 +37,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, onChildAdded, push, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getDatabase, ref, onChildAdded, push, remove, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -62,11 +64,14 @@ const eraserBtn = document.getElementById('eraser');
 
 let drawing = false, last = {x:0,y:0}, isEraser = false;
 
+// Responsive canvas function
 function resize(){
   const ratio = window.devicePixelRatio || 1;
-  const rect = panel.getBoundingClientRect();
-  canvas.width = rect.width * ratio;
-  canvas.height = rect.height * ratio;
+  const width = panel.clientWidth;
+  const height = width / 6;  // 1:6 ratio
+  canvas.style.height = height + 'px';
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
   ctx.scale(ratio, ratio);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -76,12 +81,14 @@ function resize(){
 resize();
 window.addEventListener('resize', resize);
 
+// get pointer position
 function getPos(e){
   const rect = canvas.getBoundingClientRect();
   const t = e.touches ? e.touches[0] : e;
   return {x: t.clientX - rect.left, y: t.clientY - rect.top};
 }
 
+// draw line function
 function drawLine(data){
   ctx.lineWidth = data.size;
   ctx.strokeStyle = data.erase ? "rgba(0,0,0,1)" : data.color;
@@ -92,13 +99,14 @@ function drawLine(data){
   ctx.stroke();
 }
 
+// pointer events
 function pointerDown(e){ e.preventDefault(); drawing = true; last = getPos(e); }
 function pointerMove(e){
   if(!drawing) return;
   const pos = getPos(e);
   const line = {from:last, to:pos, color:colorInput.value, size:+sizeInput.value, erase:isEraser};
   drawLine(line);
-  push(drawRef, line);
+  push(drawRef, line); // push to Firebase
   last = pos;
 }
 function pointerUp(){ drawing = false; }
@@ -110,21 +118,34 @@ canvas.addEventListener("touchstart", pointerDown, {passive:false});
 canvas.addEventListener("touchmove", pointerMove, {passive:false});
 window.addEventListener("touchend", pointerUp);
 
+// prevent scroll while drawing
+document.body.addEventListener('touchmove', e => { if(drawing) e.preventDefault(); }, {passive:false});
+
+// eraser toggle
 eraserBtn.addEventListener("click", ()=>{
   isEraser = !isEraser;
   eraserBtn.textContent = isEraser ? "Draw" : "Eraser";
 });
 
+// clear button
 clearBtn.addEventListener("click", ()=>{
-  remove(drawRef);        // clears database
+  remove(drawRef);        // clears DB
   ctx.fillStyle = "#fff"; // clears canvas
   ctx.fillRect(0,0,canvas.width,canvas.height);
 });
 
-// Draw existing lines from Firebase
-onChildAdded(drawRef, (snapshot)=>{
+// redraw existing lines from Firebase
+onChildAdded(drawRef, snapshot => {
   const data = snapshot.val();
   drawLine(data);
+});
+
+// listen for DB changes to clear canvas on all clients
+onValue(drawRef, snapshot => {
+  if(!snapshot.exists()){
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
 });
 </script>
 </body>
