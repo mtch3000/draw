@@ -5,20 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
 <title>Shared Canvas</title>
 <style>
-  html, body {
-    height:100%; margin:0;
-    background: linear-gradient(180deg,#071022,#07101a);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    font-family:system-ui; color:#fff;
-    -webkit-touch-callout: none; -webkit-user-select: none;
-    -khtml-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
-  }
-  .controls { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; justify-content:center; }
-  .btn { background:linear-gradient(90deg,#0ea5a4,#7c3aed); color:white; padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:600; }
-  .panel { width:95%; height:60%; border-radius:12px; overflow:hidden; position:relative; box-shadow:0 18px 50px rgba(2,6,23,0.7); }
-  canvas { display:block; width:100%; height:100%; background:#ffffff; cursor:crosshair; touch-action: none; }
-  .link { margin-top:12px; color:#06b6d4; text-decoration:none; font-weight:bold; word-break: break-word; text-align:center; }
-  .active-count { margin-bottom:8px; color:#06b6d4; font-weight:bold; }
+html, body {
+  height:100%; margin:0;
+  background: linear-gradient(180deg,#071022,#07101a);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  font-family:system-ui; color:#fff;
+  user-select: none; -webkit-user-select:none; -webkit-touch-callout:none;
+}
+.controls { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; justify-content:center; }
+.btn { background:linear-gradient(90deg,#0ea5a4,#7c3aed); color:white; padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:600; }
+.panel { width:95%; height:60%; border-radius:12px; overflow:hidden; position:relative; box-shadow:0 18px 50px rgba(2,6,23,0.7); }
+canvas { display:block; width:100%; height:100%; background:#fff; cursor:crosshair; touch-action: none; }
+.link { margin-top:12px; color:#06b6d4; text-decoration:none; font-weight:bold; word-break: break-word; text-align:center; }
+.active-count { margin-bottom:8px; color:#06b6d4; font-weight:bold; }
 </style>
 </head>
 <body>
@@ -71,8 +70,8 @@ const undoBtn = document.getElementById('undo');
 const fillBtn = document.getElementById('fill');
 const userCountEl = document.getElementById('userCount');
 
-let drawing = false, last = {x:0,y:0}, isEraser = false;
-let strokeKeys = []; // store stroke keys for undo
+let drawing = false, last = {x:0,y:0}, isEraser = false, bucketFillMode = false;
+let strokes = []; // array of {key, data} for undo
 
 // Responsive canvas
 function resize(){
@@ -87,13 +86,22 @@ function resize(){
   ctx.scale(ratio, ratio);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  redrawCanvas();
 }
-resize();
 window.addEventListener('resize', resize);
 
-// pointer helper
+// redraw from current strokes
+function redrawCanvas(){
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  strokes.forEach(s => {
+    const d = s.data;
+    if(d.fill) bucketFillCanvas(d.x,d.y,d.color);
+    else drawLine(d);
+  });
+}
+
+// pointer helpers
 function getPos(e){
   const rect = canvas.getBoundingClientRect();
   const t = e.touches ? e.touches[0] : e;
@@ -111,95 +119,140 @@ function drawLine(data){
   ctx.stroke();
 }
 
-// redraw all strokes
-function redrawAll(allStrokes){
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  allStrokes.forEach(data => drawLine(data));
+// flood fill (simple)
+function bucketFillCanvas(x, y, fillColor){
+  const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const data = imgData.data;
+  const stack = [];
+  const width = imgData.width;
+  const height = imgData.height;
+  const offset = (Math.floor(y) * width + Math.floor(x)) * 4;
+  const startColor = data.slice(offset, offset+4);
+  const targetColor = hexToRgb(fillColor);
+
+  function colorsMatch(c1, c2){
+    return c1[0]===c2[0] && c1[1]===c2[1] && c1[2]===c2[2] && c1[3]===c2[3];
+  }
+
+  stack.push([Math.floor(x), Math.floor(y)]);
+  while(stack.length){
+    const [cx, cy] = stack.pop();
+    const i = (cy*width+cx)*4;
+    if(i<0 || i>=data.length) continue;
+    const curColor = [data[i],data[i+1],data[i+2],data[i+3]];
+    if(colorsMatch(curColor,startColor)){
+      data[i]=targetColor[0]; data[i+1]=targetColor[1]; data[i+2]=targetColor[2]; data[i+3]=targetColor[3];
+      if(cx+1<width) stack.push([cx+1,cy]);
+      if(cx-1>=0) stack.push([cx-1,cy]);
+      if(cy+1<height) stack.push([cx,cy+1]);
+      if(cy-1>=0) stack.push([cx,cy-1]);
+    }
+  }
+  ctx.putImageData(imgData,0,0);
+}
+function hexToRgb(hex){
+  hex = hex.replace('#','');
+  const bigint = parseInt(hex,16);
+  const r=(bigint>>16)&255;
+  const g=(bigint>>8)&255;
+  const b=bigint&255;
+  return [r,g,b,255];
 }
 
 // pointer events
-function pointerDown(e){ e.preventDefault(); drawing = true; last = getPos(e); }
+function pointerDown(e){
+  e.preventDefault();
+  const pos = getPos(e);
+  if(bucketFillMode){
+    bucketFillCanvas(pos.x,pos.y,colorInput.value);
+    const refKey = push(drawRef);
+    set(refKey,{fill:true,x:pos.x,y:pos.y,color:colorInput.value});
+    strokes.push({key:refKey.key,data:{fill:true,x:pos.x,y:pos.y,color:colorInput.value}});
+    bucketFillMode=false;
+    fillBtn.textContent="Fill";
+    return;
+  }
+  drawing = true;
+  last = pos;
+}
 function pointerMove(e){
   if(!drawing) return;
   const pos = getPos(e);
   const line = {from:last, to:pos, color:colorInput.value, size:+sizeInput.value, erase:isEraser};
   drawLine(line);
   const newRef = push(drawRef);
-  set(newRef, line);
-  strokeKeys.push(newRef.key); // store key for undo
+  set(newRef,line);
+  strokes.push({key:newRef.key,data:line});
   last = pos;
 }
-function pointerUp(){ drawing = false; }
+function pointerUp(){ drawing=false; }
 
 canvas.addEventListener("mousedown", pointerDown);
 canvas.addEventListener("mousemove", pointerMove);
 window.addEventListener("mouseup", pointerUp);
-canvas.addEventListener("touchstart", pointerDown, {passive:false});
-canvas.addEventListener("touchmove", pointerMove, {passive:false});
+canvas.addEventListener("touchstart", pointerDown,{passive:false});
+canvas.addEventListener("touchmove", pointerMove,{passive:false});
 window.addEventListener("touchend", pointerUp);
 
-// prevent scroll while drawing
-document.body.addEventListener('touchmove', e => { if(drawing) e.preventDefault(); }, {passive:false});
+document.body.addEventListener('touchmove', e=>{ if(drawing) e.preventDefault();},{passive:false});
 
-// eraser toggle
+// toggle eraser
 eraserBtn.addEventListener("click", ()=>{
   isEraser = !isEraser;
-  eraserBtn.textContent = isEraser ? "Draw" : "Eraser";
+  eraserBtn.textContent = isEraser ? "Draw":"Eraser";
 });
 
-// clear button
+// clear
 clearBtn.addEventListener("click", ()=>{
   remove(drawRef);
-  strokeKeys = [];
-  ctx.fillStyle = "#fff";
+  strokes=[];
+  ctx.fillStyle="#fff";
+  ctx.fillRect(0,0,canvas.width,canvas.height;
   ctx.fillRect(0,0,canvas.width,canvas.height);
 });
 
-// undo button
+// undo last action
 undoBtn.addEventListener("click", ()=>{
-  if(strokeKeys.length === 0) return;
-  const lastKey = strokeKeys.pop();
-  remove(ref(db, `drawings/${lastKey}`));
+  if(strokes.length === 0) return;
+  const lastStroke = strokes.pop();
+  remove(ref(db, `drawings/${lastStroke.key}`));
+  redrawCanvas();
 });
 
-// fill button
+// bucket fill toggle
 fillBtn.addEventListener("click", ()=>{
-  const fillColor = colorInput.value;
-  ctx.fillStyle = fillColor;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  // Save as a single stroke in DB so everyone sees
-  const fillRef = push(drawRef);
-  set(fillRef, {from:{x:0,y:0}, to:{x:canvas.width, y:canvas.height}, color:fillColor, size:canvas.width, erase:false, fill:true});
+  bucketFillMode = !bucketFillMode;
+  fillBtn.textContent = bucketFillMode ? "Click Canvas" : "Fill";
 });
 
 // redraw strokes from Firebase
 onChildAdded(drawRef, snapshot => {
   const data = snapshot.val();
+  const key = snapshot.key;
+  strokes.push({key,data});
   if(data.fill){
-    ctx.fillStyle = data.color;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    bucketFillCanvas(data.x,data.y,data.color);
   } else {
     drawLine(data);
   }
 });
 
 // clear canvas if DB cleared
-onValue(drawRef, snapshot => {
+onValue(drawRef, snapshot=>{
   if(!snapshot.exists()){
-    ctx.fillStyle = "#fff";
+    strokes=[];
+    ctx.fillStyle="#fff";
     ctx.fillRect(0,0,canvas.width,canvas.height);
-    strokeKeys = [];
   }
 });
 
 // ======= Active users tracking =======
-const userId = 'user_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+const userId = 'user_'+Date.now()+'_'+Math.floor(Math.random()*1000);
 const userRef = ref(db, `activeUsers/${userId}`);
-set(userRef, true);
+set(userRef,true);
 onDisconnect(userRef).remove();
-onValue(usersRef, snapshot => {
-  const count = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
+onValue(usersRef, snapshot=>{
+  const count = snapshot.exists()? Object.keys(snapshot.val()).length : 0;
   userCountEl.textContent = count;
 });
 </script>
