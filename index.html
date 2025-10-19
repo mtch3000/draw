@@ -41,7 +41,7 @@ canvas { display:block; width:100%; height:100%; background:#fff; cursor:crossha
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, onChildAdded, push, remove, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getDatabase, ref, onChildAdded, push, set, remove, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -73,8 +73,8 @@ const userCountEl = document.getElementById('userCount');
 let drawing = false, last = {x:0,y:0}, isEraser = false, bucketFillMode = false;
 let strokes = []; // array of {key, data} for undo
 
-// Responsive canvas
-function resize(){
+// ===== Canvas setup =====
+function resizeCanvas(){
   const ratio = window.devicePixelRatio || 1;
   const width = window.innerWidth * 0.95;
   const height = window.innerHeight * 0.6;
@@ -88,27 +88,16 @@ function resize(){
   ctx.lineJoin = "round";
   redrawCanvas();
 }
-window.addEventListener('resize', resize);
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
 
-// redraw from current strokes
-function redrawCanvas(){
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  strokes.forEach(s => {
-    const d = s.data;
-    if(d.fill) bucketFillCanvas(d.x,d.y,d.color);
-    else drawLine(d);
-  });
-}
-
-// pointer helpers
+// ===== Drawing helpers =====
 function getPos(e){
   const rect = canvas.getBoundingClientRect();
   const t = e.touches ? e.touches[0] : e;
   return {x: t.clientX - rect.left, y: t.clientY - rect.top};
 }
 
-// draw line
 function drawLine(data){
   ctx.lineWidth = data.size;
   ctx.strokeStyle = data.erase ? "rgba(0,0,0,1)" : data.color;
@@ -119,26 +108,33 @@ function drawLine(data){
   ctx.stroke();
 }
 
-// flood fill (simple)
+function redrawCanvas(){
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  strokes.forEach(s=>{
+    const d = s.data;
+    if(d.fill) bucketFillCanvas(d.x,d.y,d.color);
+    else drawLine(d);
+  });
+}
+
+// ===== Bucket fill =====
 function bucketFillCanvas(x, y, fillColor){
   const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
   const data = imgData.data;
-  const stack = [];
   const width = imgData.width;
   const height = imgData.height;
+  const stack = [];
   const offset = (Math.floor(y) * width + Math.floor(x)) * 4;
   const startColor = data.slice(offset, offset+4);
   const targetColor = hexToRgb(fillColor);
 
-  function colorsMatch(c1, c2){
-    return c1[0]===c2[0] && c1[1]===c2[1] && c1[2]===c2[2] && c1[3]===c2[3];
-  }
-
+  function colorsMatch(c1,c2){ return c1[0]===c2[0] && c1[1]===c2[1] && c1[2]===c2[2] && c1[3]===c2[3]; }
   stack.push([Math.floor(x), Math.floor(y)]);
   while(stack.length){
-    const [cx, cy] = stack.pop();
+    const [cx,cy] = stack.pop();
     const i = (cy*width+cx)*4;
-    if(i<0 || i>=data.length) continue;
+    if(i<0||i>=data.length) continue;
     const curColor = [data[i],data[i+1],data[i+2],data[i+3]];
     if(colorsMatch(curColor,startColor)){
       data[i]=targetColor[0]; data[i+1]=targetColor[1]; data[i+2]=targetColor[2]; data[i+3]=targetColor[3];
@@ -150,16 +146,15 @@ function bucketFillCanvas(x, y, fillColor){
   }
   ctx.putImageData(imgData,0,0);
 }
+
 function hexToRgb(hex){
   hex = hex.replace('#','');
   const bigint = parseInt(hex,16);
-  const r=(bigint>>16)&255;
-  const g=(bigint>>8)&255;
-  const b=bigint&255;
+  const r=(bigint>>16)&255, g=(bigint>>8)&255, b=bigint&255;
   return [r,g,b,255];
 }
 
-// pointer events
+// ===== Pointer events =====
 function pointerDown(e){
   e.preventDefault();
   const pos = getPos(e);
@@ -168,8 +163,7 @@ function pointerDown(e){
     const refKey = push(drawRef);
     set(refKey,{fill:true,x:pos.x,y:pos.y,color:colorInput.value});
     strokes.push({key:refKey.key,data:{fill:true,x:pos.x,y:pos.y,color:colorInput.value}});
-    bucketFillMode=false;
-    fillBtn.textContent="Fill";
+    bucketFillMode=false; fillBtn.textContent="Fill";
     return;
   }
   drawing = true;
@@ -178,7 +172,7 @@ function pointerDown(e){
 function pointerMove(e){
   if(!drawing) return;
   const pos = getPos(e);
-  const line = {from:last, to:pos, color:colorInput.value, size:+sizeInput.value, erase:isEraser};
+  const line = {from:last,to:pos,color:colorInput.value,size:+sizeInput.value,erase:isEraser};
   drawLine(line);
   const newRef = push(drawRef);
   set(newRef,line);
@@ -196,48 +190,30 @@ window.addEventListener("touchend", pointerUp);
 
 document.body.addEventListener('touchmove', e=>{ if(drawing) e.preventDefault();},{passive:false});
 
-// toggle eraser
-eraserBtn.addEventListener("click", ()=>{
-  isEraser = !isEraser;
-  eraserBtn.textContent = isEraser ? "Draw":"Eraser";
-});
-
-// clear
+// ===== Controls =====
+eraserBtn.addEventListener("click", ()=>{ isEraser=!isEraser; eraserBtn.textContent = isEraser ? "Draw":"Eraser"; });
+fillBtn.addEventListener("click", ()=>{ bucketFillMode = !bucketFillMode; fillBtn.textContent = bucketFillMode ? "Click Canvas":"Fill"; });
 clearBtn.addEventListener("click", ()=>{
   remove(drawRef);
   strokes=[];
-  ctx.fillStyle="#fff";
-  ctx.fillRect(0,0,canvas.width,canvas.height;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
 });
-
-// undo last action
 undoBtn.addEventListener("click", ()=>{
-  if(strokes.length === 0) return;
+  if(strokes.length===0) return;
   const lastStroke = strokes.pop();
   remove(ref(db, `drawings/${lastStroke.key}`));
   redrawCanvas();
 });
 
-// bucket fill toggle
-fillBtn.addEventListener("click", ()=>{
-  bucketFillMode = !bucketFillMode;
-  fillBtn.textContent = bucketFillMode ? "Click Canvas" : "Fill";
-});
-
-// redraw strokes from Firebase
-onChildAdded(drawRef, snapshot => {
+// ===== Firebase sync =====
+onChildAdded(drawRef, snapshot=>{
   const data = snapshot.val();
   const key = snapshot.key;
-  strokes.push({key,data});
-  if(data.fill){
-    bucketFillCanvas(data.x,data.y,data.color);
-  } else {
-    drawLine(data);
-  }
+  if(!strokes.find(s=>s.key===key)) strokes.push({key,data});
+  if(data.fill) bucketFillCanvas(data.x,data.y,data.color);
+  else drawLine(data);
 });
 
-// clear canvas if DB cleared
 onValue(drawRef, snapshot=>{
   if(!snapshot.exists()){
     strokes=[];
@@ -246,14 +222,13 @@ onValue(drawRef, snapshot=>{
   }
 });
 
-// ======= Active users tracking =======
+// ===== Active users =====
 const userId = 'user_'+Date.now()+'_'+Math.floor(Math.random()*1000);
 const userRef = ref(db, `activeUsers/${userId}`);
 set(userRef,true);
 onDisconnect(userRef).remove();
 onValue(usersRef, snapshot=>{
-  const count = snapshot.exists()? Object.keys(snapshot.val()).length : 0;
-  userCountEl.textContent = count;
+  userCountEl.textContent = snapshot.exists()? Object.keys(snapshot.val()).length : 0;
 });
 </script>
 </body>
