@@ -78,300 +78,95 @@
 
 
 
-<script>
-
-(function(){
-
-  const canvas = document.getElementById('canvas');
-
-  const panel = document.getElementById('panel');
-
-  const ctx = canvas.getContext('2d', { alpha: true });
-
-  const colorInput = document.getElementById('color');
-
-  const sizeInput = document.getElementById('size');
-
-  const clearBtn = document.getElementById('clear');
-
-  const saveBtn = document.getElementById('save');
-
-  const eraserBtn = document.getElementById('eraser');
-
-  const modeEl = document.getElementById('mode');
-
-
-
-  // Resize canvas to display size but keep high DPI
-
-  function resize() {
-
-    const ratio = Math.max(1, window.devicePixelRatio || 1);
-
-    const rect = panel.getBoundingClientRect();
-
-    canvas.width = Math.round(rect.width * ratio);
-
-    canvas.height = Math.round(rect.height * ratio);
-
-    canvas.style.width = rect.width + 'px';
-
-    canvas.style.height = rect.height + 'px';
-
-    ctx.scale(ratio, ratio);
-
-    ctx.lineCap = 'round';
-
-    ctx.lineJoin = 'round';
-
-    redrawBackdrop();
-
-  }
-
-
-
-  // faint grid/backdrop for nicer drawing surface
-
-  function redrawBackdrop(){
-
-    // draw subtle vignette
-
-    ctx.save();
-
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // Fill with white background
-
-    ctx.fillStyle = '#ffffff';
-
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.restore();
-
-  }
-
-
-
-  let drawing = false;
-
-  let last = {x:0,y:0};
-
-  let isEraser = false;
-
-
-
-  function setModeText(){ modeEl.textContent = isEraser ? 'Eraser' : 'Draw'; }
-
-
-
-  function getPointerPos(evt){
-
-    const rect = canvas.getBoundingClientRect();
-
-    let clientX, clientY;
-
-    if(evt.touches && evt.touches[0]){ clientX = evt.touches[0].clientX; clientY = evt.touches[0].clientY; }
-
-    else { clientX = evt.clientX; clientY = evt.clientY; }
-
-    return { x: clientX - rect.left, y: clientY - rect.top };
-
-  }
-
-
-
-  function pointerDown(e){
-
-    e.preventDefault();
-
-    drawing = true;
-
-    last = getPointerPos(e);
-
-    // begin a new path for smoother strokes
-
-    ctx.beginPath();
-
-    ctx.moveTo(last.x, last.y);
-
-  }
-
-
-
-  function pointerMove(e){
-
-    if(!drawing) return;
-
-    const pos = getPointerPos(e);
-
-    const brush = Number(sizeInput.value);
-
-    ctx.lineWidth = brush;
-
-    if(isEraser){
-
-      ctx.globalCompositeOperation = 'destination-out';
-
-      ctx.strokeStyle = 'rgba(0,0,0,1)';
-
-    } else {
-
-      ctx.globalCompositeOperation = 'source-over';
-
-      ctx.strokeStyle = colorInput.value;
-
-    }
-
-
-
-    // smoothing: quadratic curve between last and current
-
-    const midX = (last.x + pos.x) / 2;
-
-    const midY = (last.y + pos.y) / 2;
-
-    ctx.quadraticCurveTo(last.x, last.y, midX, midY);
-
-    ctx.stroke();
-
-    last = pos;
-
-  }
-
-
-
-  function pointerUp(e){
-
-    if(!drawing) return;
-
-    drawing = false;
-
-    ctx.closePath();
-
-  }
-
-
-
-  // events
-
-  canvas.addEventListener('mousedown', pointerDown);
-
-  canvas.addEventListener('mousemove', pointerMove);
-
-  window.addEventListener('mouseup', pointerUp);
-
-
-
-  canvas.addEventListener('touchstart', pointerDown, {passive:false});
-
-  canvas.addEventListener('touchmove', pointerMove, {passive:false});
-
-  window.addEventListener('touchend', pointerUp);
-
-
-
-  // controls
-
-  eraserBtn.addEventListener('click', ()=>{
-
-    isEraser = !isEraser;
-
-    eraserBtn.classList.toggle('ghost', !isEraser);
-
-    eraserBtn.textContent = isEraser ? 'Drawing' : 'Eraser';
-
-    setModeText();
-
-  });
-
-
-
-  clearBtn.addEventListener('click', ()=>{
-
-    const w = canvas.width, h = canvas.height;
-
-    ctx.clearRect(0,0,w,h);
-
-    redrawBackdrop();
-
-  });
-
-
-
-  saveBtn.addEventListener('click', ()=>{
-
-    // temporarily flatten onto an offscreen canvas at display size
-
-    const temp = document.createElement('canvas');
-
-    temp.width = canvas.clientWidth;
-
-    temp.height = canvas.clientHeight;
-
-    const tctx = temp.getContext('2d');
-
-    // copy: draw the visible canvas (it is scaled with CSS but contains content)
-
-    tctx.drawImage(canvas, 0, 0, temp.width, temp.height);
-
-    const data = temp.toDataURL('image/png');
-
-    const a = document.createElement('a');
-
-    a.href = data;
-
-    a.download = 'drawing.png';
-
-    a.click();
-
-  });
-
-
-
-  // keyboard shortcuts: E for eraser, C for clear, S for save
-
-  window.addEventListener('keydown', (e)=>{
-
-    if(e.key === 'e' || e.key === 'E'){ eraserBtn.click(); }
-
-    if(e.key === 'c' || e.key === 'C'){ clearBtn.click(); }
-
-    if(e.key === 's' || e.key === 'S'){ saveBtn.click(); }
-
-  });
-
-
-
-  // responsive
-
-  window.addEventListener('resize', ()=> {
-
-    // debounce
-
-    clearTimeout(window.__resizeTimer);
-
-    window.__resizeTimer = setTimeout(resize, 120);
-
-  });
-
-
-
-  // initial setup
-
-  resize();
-
-
-
-  // small UX: prevent scrolling while drawing on mobile
-
-  document.body.addEventListener('touchmove', function(e){
-
-    if(drawing) e.preventDefault();
-
-  }, {passive:false});
-
-})();
-
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import { getDatabase, ref, onChildAdded, push, set, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+// 🔥 Your Firebase config
+const firebaseConfig = {
+    apiKey: "AIzaSyBFc597khPRThMIGF4BRkqA7VxnNEM0zFk",
+    authDomain: "shared-drawing-canvas.firebaseapp.com",
+    databaseURL: "https://shared-drawing-canvas-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "shared-drawing-canvas",
+    storageBucket: "shared-drawing-canvas.firebasestorage.app",
+    messagingSenderId: "379615731075",
+    appId: "1:379615731075:web:113fea60f358360975aab6"
+  };
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const drawRef = ref(db, "drawings");
+
+const canvas = document.getElementById('canvas');
+const panel = document.getElementById('panel');
+const ctx = canvas.getContext('2d');
+const colorInput = document.getElementById('color');
+const sizeInput = document.getElementById('size');
+const clearBtn = document.getElementById('clear');
+const eraserBtn = document.getElementById('eraser');
+const modeEl = document.getElementById('mode');
+
+let drawing = false, last = {x:0,y:0}, isEraser = false;
+
+function resize(){
+  const ratio = window.devicePixelRatio || 1;
+  const rect = panel.getBoundingClientRect();
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  ctx.scale(ratio, ratio);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+resize();
+
+function getPos(e){
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return {x: t.clientX - rect.left, y: t.clientY - rect.top};
+}
+
+function drawLine(data){
+  ctx.lineWidth = data.size;
+  ctx.strokeStyle = data.erase ? "rgba(0,0,0,1)" : data.color;
+  ctx.globalCompositeOperation = data.erase ? "destination-out" : "source-over";
+  ctx.beginPath();
+  ctx.moveTo(data.from.x, data.from.y);
+  ctx.lineTo(data.to.x, data.to.y);
+  ctx.stroke();
+}
+
+function pointerDown(e){ e.preventDefault(); drawing = true; last = getPos(e); }
+function pointerMove(e){
+  if(!drawing) return;
+  const pos = getPos(e);
+  const line = {from:last, to:pos, color:colorInput.value, size:+sizeInput.value, erase:isEraser};
+  drawLine(line);
+  push(drawRef, line);
+  last = pos;
+}
+function pointerUp(){ drawing = false; }
+
+canvas.addEventListener("mousedown", pointerDown);
+canvas.addEventListener("mousemove", pointerMove);
+window.addEventListener("mouseup", pointerUp);
+canvas.addEventListener("touchstart", pointerDown, {passive:false});
+canvas.addEventListener("touchmove", pointerMove, {passive:false});
+window.addEventListener("touchend", pointerUp);
+
+eraserBtn.addEventListener("click", ()=>{
+  isEraser = !isEraser;
+  eraserBtn.textContent = isEraser ? "Drawing" : "Eraser";
+  modeEl.textContent = isEraser ? "Eraser" : "Draw";
+});
+
+clearBtn.addEventListener("click", ()=> remove(drawRef));
+
+onChildAdded(drawRef, (snapshot)=>{
+  const data = snapshot.val();
+  drawLine(data);
+});
 </script>
 
 </body>
